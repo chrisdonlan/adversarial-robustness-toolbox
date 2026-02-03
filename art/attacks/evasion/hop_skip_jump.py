@@ -164,7 +164,7 @@ class HopSkipJump(EvasionAttack):
             clip_min, clip_max = np.min(x), np.max(x)
 
         # Prediction from the original images
-        preds = np.argmax(self.estimator.predict(x, batch_size=self.batch_size), axis=1)
+        preds = np.argmax(self.estimator.predict(x, batch_size=self.batch_size), axis=-1)
 
         # Prediction from the initial adversarial examples if not None
         x_adv_init = kwargs.get("x_adv_init")
@@ -176,7 +176,7 @@ class HopSkipJump(EvasionAttack):
                     x_adv_init[i] = x_adv_init[i] * mask[i] + x[i] * (1 - mask[i])
 
             # Do prediction on the init
-            init_preds = np.argmax(self.estimator.predict(x_adv_init, batch_size=self.batch_size), axis=1)
+            init_preds = np.argmax(self.estimator.predict(x_adv_init, batch_size=self.batch_size), axis=-1)
 
         else:
             init_preds = [None] * len(x)
@@ -189,7 +189,7 @@ class HopSkipJump(EvasionAttack):
         # Some initial setups
         x_adv = x.astype(ART_NUMPY_DTYPE)
 
-        y = np.argmax(y, axis=1)
+        y = np.argmax(y, axis=-1)
 
         # Generate the adversarial samples
         for ind, val in enumerate(tqdm(x_adv, desc="HopSkipJump", disable=not self.verbose)):
@@ -313,7 +313,7 @@ class HopSkipJump(EvasionAttack):
 
                 random_class = np.argmax(
                     self.estimator.predict(np.array([random_img]), batch_size=self.batch_size),
-                    axis=1,
+                    axis==1,
                 )[0]
 
                 if random_class == y:
@@ -348,7 +348,7 @@ class HopSkipJump(EvasionAttack):
 
                 random_class = np.argmax(
                     self.estimator.predict(np.array([random_img]), batch_size=self.batch_size),
-                    axis=1,
+                    axis=-1,
                 )[0]
 
                 if random_class != y_p:
@@ -446,6 +446,7 @@ class HopSkipJump(EvasionAttack):
                     target=target,
                     clip_min=clip_min,
                     clip_max=clip_max,
+                    summarize=True,
                 )
 
             # Update current sample
@@ -630,8 +631,8 @@ class HopSkipJump(EvasionAttack):
         return result
 
     def _adversarial_satisfactory(
-        self, samples: np.ndarray, target: int, clip_min: float, clip_max: float
-    ) -> np.ndarray:
+        self, samples: np.ndarray, target: int, clip_min: float, clip_max: float, summarize: bool = False 
+    ) -> Union[np.ndarray, bool]:
         """
         Check whether an image is adversarial.
 
@@ -639,17 +640,33 @@ class HopSkipJump(EvasionAttack):
         :param target: The target label.
         :param clip_min: Minimum value of an example.
         :param clip_max: Maximum value of an example.
+        :param summarize: if True, returns True if ALL preds equal the target, otherwise False (True iff all True).
         :return: An array of 0/1.
         """
         samples = np.clip(samples, clip_min, clip_max)
-        preds = np.argmax(self.estimator.predict(samples, batch_size=self.batch_size), axis=1)
+        estimator_predictions = self.estimator.predict(samples, batch_size=self.batch_size)
+        preds = np.argmax(estimator_predictions, axis=-1) # axis should be -1 not 1; want the last axis
 
         if self.targeted:
             result = preds == target
         else:
             result = preds != target
 
-        return result
+        # PROPOSED BUGFIX @1.20.1
+        # 
+        # The intended behavior is a single boolean in one call, 
+        #   _attack, hop_skip_jump.py: ~450
+        # 
+        # ...and an array that can have a mean value in another call...
+        # ...and in that call, it is reshaped as if it is a singular value
+        # ...implying this cannot work in all conditions. 
+        # 
+        # At the time of writing, no valid working conditions are known.
+        if summarize:
+            satisfaction_set = np.unique(result)
+            return len(satisfaction_set) == 1 and satisfaction_set[0]  # is true
+        else:
+            return result
 
     @staticmethod
     def _interpolate(

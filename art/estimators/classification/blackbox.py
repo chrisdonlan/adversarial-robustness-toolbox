@@ -123,7 +123,11 @@ class BlackBoxClassifier(ClassifierMixin, BaseEstimator):
         x_preprocessed, _ = self._apply_preprocessing(x, y=None, fit=False)
 
         # Run predictions with batching
-        predictions = np.zeros((x_preprocessed.shape[0], self.nb_classes), dtype=ART_NUMPY_DTYPE)
+        if x_preprocessed.ndim < 3:
+            predictions = np.zeros((x_preprocessed.shape[0], self.nb_classes), dtype=ART_NUMPY_DTYPE)
+        else:
+            predictions = np.zeros((x_preprocessed.shape[0], x_preprocessed.shape[1], self.nb_classes), dtype=ART_NUMPY_DTYPE)
+            
         for batch_index in range(int(np.ceil(x_preprocessed.shape[0] / float(batch_size)))):
             begin, end = (
                 batch_index * batch_size,
