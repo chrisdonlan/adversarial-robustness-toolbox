@@ -123,17 +123,40 @@ class BlackBoxClassifier(ClassifierMixin, BaseEstimator):
         x_preprocessed, _ = self._apply_preprocessing(x, y=None, fit=False)
 
         # Run predictions with batching
-        if x_preprocessed.ndim < 3:
-            predictions = np.zeros((x_preprocessed.shape[0], self.nb_classes), dtype=ART_NUMPY_DTYPE)
+        sample_dim = len(self.input_shape)
+        if x.ndim == sample_dim:
+
+            # edge case: input_shape[0] == 1 (row vector), but input is many rows.
+            samples = x_preprocessed.shape[0]//self.input_shape[0]
+            assert samples * self.input_shape[0] == x_preprocessed.shape[0], \
+                (f"Invalid sample batch submitted. 'input_shape' row dimension does not evenly divide samples. "
+                 f"It was: {self.input_shape[0]}; got: {x_preprocessed.shape[0]}")
+
+            # note this assumes the clf knows what to do if it receives, for example, images or tables concatenated on
+            #  top of each other in the row dimension.
+            # correct function should be stacking these samples in the 'batch' dimension, while this primarily supports
+            # feature vectors, which will be stacked row-wise (vertical row + row + ...) in the n-1 dimension.
+            predictions = np.zeros((samples, self.nb_classes), dtype=ART_NUMPY_DTYPE)
+
+        elif x.ndim == sample_dim + 1:
+            # batched
+            samples = x_preprocessed.shape[1]//self.input_shape[0]
+            assert samples * self.input_shape[0] == x_preprocessed.shape[1], \
+                (f"Invalid sample batch submitted. 'input_shape' row dimension does not evenly divide samples in batch."
+                 f"It was: {self.input_shape[0]}; got: {x_preprocessed.shape[1]}")
+
+            predictions = np.zeros((x_preprocessed.shape[0], samples, self.nb_classes),
+                                   dtype=ART_NUMPY_DTYPE)
         else:
-            predictions = np.zeros((x_preprocessed.shape[0], x_preprocessed.shape[1], self.nb_classes), dtype=ART_NUMPY_DTYPE)
-            
+            raise NotImplementedError("Unhandled dimensionality. Verify sample_dim and x sample dimension match.")
+
         for batch_index in range(int(np.ceil(x_preprocessed.shape[0] / float(batch_size)))):
             begin, end = (
                 batch_index * batch_size,
                 min((batch_index + 1) * batch_size, x_preprocessed.shape[0]),
             )
             predictions[begin:end] = self.predict_fn(x_preprocessed[begin:end])
+
 
         # Apply postprocessing
         predictions = self._apply_postprocessing(preds=predictions, fit=False)

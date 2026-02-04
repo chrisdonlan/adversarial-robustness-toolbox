@@ -611,7 +611,13 @@ class HopSkipJump(EvasionAttack):
         satisfied = self._adversarial_satisfactory(
             samples=eval_samples, target=target, clip_min=clip_min, clip_max=clip_max
         )
-        f_val = 2 * satisfied.reshape([num_eval] + [1] * len(self.estimator.input_shape)) - 1.0
+        try:
+            f_val = 2 * satisfied.reshape([num_eval] + [1] * len(self.estimator.input_shape)) - 1.0
+        except ValueError as e:
+            logger.error(f"Could not reshape adversarial result matrix. Expecting 1 prediction per "
+                         f"[input_shape:{self.estimator.input_shape}]; got: [{satisfied.shape}]")
+            raise ValueError(e)
+
         f_val = f_val.astype(ART_NUMPY_DTYPE)
 
         if np.mean(f_val) == 1.0:
@@ -652,16 +658,6 @@ class HopSkipJump(EvasionAttack):
         else:
             result = preds != target
 
-        # PROPOSED BUGFIX @1.20.1
-        # 
-        # The intended behavior is a single boolean in one call, 
-        #   _attack, hop_skip_jump.py: ~450
-        # 
-        # ...and an array that can have a mean value in another call...
-        # ...and in that call, it is reshaped as if it is a singular value
-        # ...implying this cannot work in all conditions. 
-        # 
-        # At the time of writing, no valid working conditions are known.
         if summarize:
             satisfaction_set = np.unique(result)
             return len(satisfaction_set) == 1 and satisfaction_set[0]  # is true
